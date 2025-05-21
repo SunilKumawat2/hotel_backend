@@ -103,13 +103,14 @@ const verifyUserOtp = async (req, res) => {
   }
 };
 
-
 // <---------- user login controller --------->
 const loginUser = async (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
-    return res.status(400).json({ message: "Email and password are required." });
+    return res
+      .status(400)
+      .json({ message: "Email and password are required." });
   }
 
   try {
@@ -126,7 +127,9 @@ const loginUser = async (req, res) => {
     }
 
     if (!user.is_otp_verify) {
-      return res.status(403).json({ message: "Please verify OTP before login." });
+      return res
+        .status(403)
+        .json({ message: "Please verify OTP before login." });
     }
     const token = generateToken(user._id);
 
@@ -146,6 +149,72 @@ const loginUser = async (req, res) => {
   }
 };
 
+// forgot password: send otp ------------>
+const forgotPasswordSendOtp = async (req, res) => {
+  const { email } = req.body;
 
+  if (!email) {
+    return res.status(400).json({ message: "Email is required" });
+  }
 
-module.exports = { registerUser, verifyUserOtp,loginUser  };
+  try {
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res
+        .status(404)
+        .json({ message: "User not found with this email" });
+    }
+
+    // Send OTP for password reset
+    const otp = await sendOtp(email, user.first_name, "forgotpassword");
+
+    res.status(200).json({
+      message: "OTP sent to email for password reset",
+      otp,
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// <---------- forgot password: change password after OTP verification ---------->
+const changeForgotPassword = async (req, res) => {
+  const { email, password, confirm_password } = req.body;
+
+  if (!email || !password || !confirm_password) {
+    return res.status(400).json({ message: "All fields are required." });
+  }
+
+  if (password !== confirm_password) {
+    return res.status(400).json({ message: "Passwords do not match." });
+  }
+
+  try {
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found." });
+    }
+
+    if (!user.is_otp_verify) {
+      return res
+        .status(403)
+        .json({ message: "OTP not verified. Please verify before changing password." });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    user.password = hashedPassword;
+    user.confirm_password = hashedPassword; // If you still store this (optional)
+    user.is_otp_verify = false; // reset OTP verification status after password change
+
+    await user.save();
+
+    res.status(200).json({ message: "Password updated successfully." });
+  } catch (error) {
+    console.log("Change password error:", error.message);
+    res.status(500).json({ message: "Server error." });
+  }
+};
+
+module.exports = { registerUser, verifyUserOtp, loginUser,forgotPasswordSendOtp,changeForgotPassword };
